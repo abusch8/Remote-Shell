@@ -8,6 +8,8 @@
 #include <sys/wait.h>
 #include <netinet/in.h>
 #include <limits.h>
+#include <signal.h>
+#include <arpa/inet.h>
 
 #define BACKLOG 10
 #define SIG "\0"
@@ -28,14 +30,13 @@ int start_server(int *sockfd, int port, struct sockaddr_in server) {
     if (listen(*sockfd, BACKLOG) < 0) {
         return 1;
     }
-    // TODO Add server start success info message
     return 0;
 }
 
-int read_client(int new_fd) {
+int read_client(int connfd) {
     char buf[1256], *token, *rest = buf, *args[10];
     int ret, i = 0, fd[2];
-    if ((ret = read(new_fd, buf, sizeof(buf))) < 0) {
+    if ((ret = read(connfd, buf, sizeof(buf))) < 0) {
         return 1;
     } else if (!ret) {
         return 0; // client disconnected
@@ -62,7 +63,7 @@ int read_client(int new_fd) {
             // error = strcat(error, "\n");
             // write(new_fd, error, sizeof(error));
         }
-        if (write(new_fd, SIG, sizeof(SIG)) < 0) {
+        if (write(connfd, SIG, sizeof(SIG)) < 0) {
             return 1;
         }
         return 0;
@@ -81,17 +82,17 @@ int read_client(int new_fd) {
             wait(NULL);
             close(fd[1]);
             while ((ret = read(fd[0], buf, sizeof(buf))) != 0) {
-                if (ret < 0 || write(new_fd, buf, sizeof(buf)) < 0) {
+                if (ret < 0 || write(connfd, buf, sizeof(buf)) < 0) {
                     return 1;
                 }
                 memset(&buf, 0, sizeof(buf));
             }
-            if (write(new_fd, SIG, sizeof(SIG)) < 0) {
+            if (write(connfd, SIG, sizeof(SIG)) < 0) {
                 return 1;
             }
             close(fd[0]);
     }
-    return read_client(new_fd);
+    return read_client(connfd);
 }
 
 int main(int argc, char **argv) {
@@ -101,39 +102,53 @@ int main(int argc, char **argv) {
         exit(1);
     }
     char hostname[HOST_NAME_MAX];
-    int sockfd, new_fd, port = atoi(argv[1]), run = 1;
+    int sockfd, connfd, port = atoi(argv[1]), run = 1; // i = 0; [BACKLOG]
     struct sockaddr_in server, client;
-    socklen_t len;
     pid_t pid;
     if (start_server(&sockfd, port, server)) {
         perror("Failed to start server");
         exit(1);
     }
+    // TODO Add server start success info message
     if (argc == 3) {
         strcpy(hostname, argv[2]);
     } else {
         gethostname(hostname, sizeof(hostname));
     }
     while (run) {
-        len = sizeof(client);
-        if ((new_fd = accept(sockfd, (struct sockaddr *)&client, &len)) < 0) {
-            perror("Failed to accept client");
-            continue;
-        }
-        if ((pid = fork()) < 0) {
-            perror("Failed to create fork");
+        char conn_ip[INET_ADDRSTRLEN];
+        socklen_t len = sizeof(client);
+        if ((connfd = accept(sockfd, (struct sockaddr *)&client, &len)) < 0
+        || (pid = fork()) < 0) {
+            perror("Failed to establish connection to client");
         } else if (!pid) { // child
-            printf("connected\n"); // TODO More detail in message
-            write(new_fd, hostname, sizeof(hostname));
-            if (read_client(new_fd)) {
+            // int index = i++;
+            inet_ntop(client.sin_family, &client.sin_addr.s_addr, conn_ip, sizeof(conn_ip));
+            printf("Client connected from %s on pid:%d\n", conn_ip, getpid());
+            write(connfd, hostname, sizeof(hostname));
+            if (read_client(connfd)) {
                 perror("Failed to read client");
                 exit(1);
             } else {
-                printf("disconnected\n"); // TODO More detail in message
+                // for (int i = index; i < BACKLOG - 1; i++) {
+                //     new_fd[i] = new_fd[i + 1];
+                // }
+                // new_fd[BACKLOG]
+                printf("Client disconnected from %s\n", conn_ip);
             }
+        } else { // parent
+            // char buf[1256];
+            // fgets(buf, sizeof(buf), stdin);
+            // strtok(buf, "\n");
+            // if (!strcmp(buf, "quit")) {
+            //     for (int j = 0; j < i; j++) {
+            //         // write(new_fd[j], );
+            //     }
+            //     run = 0;
+            // }
         }
     }
     close(sockfd);
-    close(new_fd);
+    close(connfd);
     return 0;
 }

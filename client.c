@@ -47,7 +47,10 @@ int main(int argc, char **argv) {
         fgets(buf, sizeof(buf), stdin);
         strtok(buf, "\n");
         if (strlen(buf) == 1) continue;
-        if (strcmp(buf, "quit") == 0) run = 0;
+        if (strcmp(buf, "quit") == 0) {
+            run = 0;
+            break;
+        }
         if (write(sockfd, buf, sizeof(buf)) < 0) {
             perror("Failed to write to server");
             exit(1);
