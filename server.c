@@ -14,8 +14,8 @@
 
 #define BACKLOG 10
 
-#define SIG_END  "\\1"
-#define SIG_QUIT "\\2"
+#define SIG_END  "\\1" // End of read signal
+#define SIG_TERM "\\2" // Server termination signal
 
 extern int errno;
 
@@ -80,6 +80,7 @@ int read_client(int connfd) {
     switch (fork()) { // command execution
         case -1 : return 1; // error
         case  0 : // child
+            close(connfd);
             close(fd[0]);
             dup2(fd[1], 1); // pipe stdout
             dup2(fd[1], 2); // pipe stderr
@@ -108,7 +109,6 @@ int run = 1;
 
 void termination_handler(int signum) {
     run = 0;
-    printf("\n");
     return;
 }
 
@@ -119,9 +119,8 @@ int main(int argc, char **argv) {
         exit(1);
     }
     char hostname[HOST_NAME_MAX];
-    int sockfd, connfd, port = atoi(argv[1]);
+    int sockfd, *connfd = (int *)malloc(sizeof(int)), curr = 0, port = atoi(argv[1]);
     struct sockaddr_in server, client;
-
     struct sigaction new_action, old_action;
     new_action.sa_handler = termination_handler;
     sigemptyset(&new_action.sa_mask);
@@ -131,7 +130,6 @@ int main(int argc, char **argv) {
     if (old_action.sa_handler != SIG_IGN) {
         sigaction(SIGINT, &new_action, NULL);
     }
-
     if (start_server(&sockfd, port, server)) {
         perror("Failed to start server");
         exit(1);
@@ -148,28 +146,34 @@ int main(int argc, char **argv) {
         socklen_t len = sizeof(client);
         if ((ret = accept(sockfd, (struct sockaddr *)&client, &len)) < 0
         || (pid = fork()) < 0) {
-            perror("Failed to establish connection to client");
+            if (run) {
+                perror("Failed to establish connection to client");
+            }
         } else if (!pid) { // child
             close(sockfd);
-            connfd = ret;
+            connfd[curr] = ret;
             inet_ntop(client.sin_family, &client.sin_addr.s_addr, conn_ip, sizeof(conn_ip));
             printf("Client connected from %s on pid:%d\n", conn_ip, getpid());
-            write(connfd, hostname, sizeof(hostname));
-            if (read_client(connfd)) {
-                perror("Failed to read client");
+            write(connfd[curr], hostname, sizeof(hostname));
+            if (read_client(connfd[curr])) {
+                if (run) {
+                    perror("Failed to read client");
+                }
                 exit(1);
             } else {
                 printf("Client disconnected from %s\n", conn_ip);
                 exit(0);
             }
         } else {
-            connfd = ret;
+            connfd = (int *)realloc(connfd, (curr + 1) * sizeof(int));
+            connfd[curr++] = ret;
         }
     }
-    /* Server Shutdown */
-    printf("Server shutting down...\n");
-    write(connfd, SIG_QUIT, sizeof(SIG_QUIT));
+    printf("\nShutting down server...\n");
+    for (int i = 0; i < curr; i++) {
+        write(connfd[i], SIG_TERM, sizeof(SIG_TERM));
+        close(connfd[i]);
+    }
     close(sockfd);
-    close(connfd);
     return 0;
 }

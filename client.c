@@ -10,8 +10,8 @@
 #include <arpa/inet.h>
 #include <limits.h>
 
-#define SIG_END  "\\1"
-#define SIG_QUIT "\\2"
+#define SIG_END  "\\1" // End of read signal
+#define SIG_TERM "\\2" // Server termination signal
 
 extern int errno;
 
@@ -71,7 +71,7 @@ int main(int argc, char **argv) {
                 perror("Failed to read server");
                 exit(1);
             }
-            if (!strcmp(buf, SIG_QUIT)) {
+            if (!strcmp(buf, SIG_TERM)) {
                 printf("Server shutdown\n");
                 run = 0;
                 break;
