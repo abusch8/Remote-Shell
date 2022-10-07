@@ -10,9 +10,19 @@
 #include <arpa/inet.h>
 #include <limits.h>
 
-#define SIG "\0"
+#define SIG_END  "\\1"
+#define SIG_QUIT "\\2"
 
 extern int errno;
+
+// TODO
+// int start_client() {
+
+// }
+
+// int write_server() {
+
+// }
 
 int main(int argc, char **argv) {
     if (argc != 3) {
@@ -46,19 +56,25 @@ int main(int argc, char **argv) {
         fflush(stdout);
         fgets(buf, sizeof(buf), stdin);
         strtok(buf, "\n");
-        if (strlen(buf) == 1) continue;
         if (strcmp(buf, "quit") == 0) {
             run = 0;
             break;
         }
         if (write(sockfd, buf, sizeof(buf)) < 0) {
+            close(sockfd);
             perror("Failed to write to server");
             exit(1);
         }
-        while ((ret = read(sockfd, buf, sizeof(buf))) != 0 && strcmp(buf, SIG) != 0) {
+        while ((ret = read(sockfd, buf, sizeof(buf))) != 0 && (strcmp(buf, SIG_END)) != 0) {
             if (ret < 0) {
+                close(sockfd);
                 perror("Failed to read server");
                 exit(1);
+            }
+            if (!strcmp(buf, SIG_QUIT)) {
+                printf("Server shutdown\n");
+                run = 0;
+                break;
             }
             fflush(stdout);
             printf("%s", buf);

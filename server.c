@@ -10,9 +10,12 @@
 #include <limits.h>
 #include <signal.h>
 #include <arpa/inet.h>
+#include <signal.h>
 
 #define BACKLOG 10
-#define SIG "\0"
+
+#define SIG_END  "\\1"
+#define SIG_QUIT "\\2"
 
 extern int errno;
 
@@ -39,7 +42,13 @@ int read_client(int connfd) {
     if ((ret = read(connfd, buf, sizeof(buf))) < 0) {
         return 1;
     } else if (!ret) {
-        return 0; // client disconnected
+        return 0; // connection lost
+    }
+    if (buf[0] == '\n') { // check if client input is empty
+        if (write(connfd, SIG_END, sizeof(SIG_END)) < 0) {
+            return 1;
+        }
+        return read_client(connfd);
     }
     while ((token = strtok_r(rest, " ", &rest))) { // tokenizer
         args[i] = (char *)malloc(sizeof(char) * (strlen(token) + 1));
@@ -50,8 +59,8 @@ int read_client(int connfd) {
     if (pipe(fd)) {
         return 1;
     }
-    if (!strcmp(args[0], "cd")) {
-        if (args[2] != NULL) { // TODO
+    if (!strcmp(args[0], "cd")) { // TODO
+        if (args[2] != NULL) {
             // char error[] = "Too many arguments\n";
             // printf("%s\n", error);
             // write(new_fd, error, sizeof(error));
@@ -63,7 +72,7 @@ int read_client(int connfd) {
             // error = strcat(error, "\n");
             // write(new_fd, error, sizeof(error));
         }
-        if (write(connfd, SIG, sizeof(SIG)) < 0) {
+        if (write(connfd, SIG_END, sizeof(SIG_END)) < 0) {
             return 1;
         }
         return 0;
@@ -87,12 +96,20 @@ int read_client(int connfd) {
                 }
                 memset(&buf, 0, sizeof(buf));
             }
-            if (write(connfd, SIG, sizeof(SIG)) < 0) {
+            if (write(connfd, SIG_END, sizeof(SIG_END)) < 0) {
                 return 1;
             }
             close(fd[0]);
     }
     return read_client(connfd);
+}
+
+int run = 1;
+
+void termination_handler(int signum) {
+    run = 0;
+    printf("\n");
+    return;
 }
 
 int main(int argc, char **argv) {
@@ -102,14 +119,23 @@ int main(int argc, char **argv) {
         exit(1);
     }
     char hostname[HOST_NAME_MAX];
-    int sockfd, connfd, port = atoi(argv[1]), run = 1; // i = 0; [BACKLOG]
+    int sockfd, connfd, port = atoi(argv[1]);
     struct sockaddr_in server, client;
-    pid_t pid;
+
+    struct sigaction new_action, old_action;
+    new_action.sa_handler = termination_handler;
+    sigemptyset(&new_action.sa_mask);
+    sigaddset(&new_action.sa_mask, SIGTERM);
+    new_action.sa_flags = 0;
+    sigaction(SIGINT, NULL, &old_action);
+    if (old_action.sa_handler != SIG_IGN) {
+        sigaction(SIGINT, &new_action, NULL);
+    }
+
     if (start_server(&sockfd, port, server)) {
         perror("Failed to start server");
         exit(1);
     }
-    // TODO Add server start success info message
     if (argc == 3) {
         strcpy(hostname, argv[2]);
     } else {
@@ -117,12 +143,15 @@ int main(int argc, char **argv) {
     }
     while (run) {
         char conn_ip[INET_ADDRSTRLEN];
+        int ret;
+        pid_t pid;
         socklen_t len = sizeof(client);
-        if ((connfd = accept(sockfd, (struct sockaddr *)&client, &len)) < 0
+        if ((ret = accept(sockfd, (struct sockaddr *)&client, &len)) < 0
         || (pid = fork()) < 0) {
             perror("Failed to establish connection to client");
         } else if (!pid) { // child
-            // int index = i++;
+            close(sockfd);
+            connfd = ret;
             inet_ntop(client.sin_family, &client.sin_addr.s_addr, conn_ip, sizeof(conn_ip));
             printf("Client connected from %s on pid:%d\n", conn_ip, getpid());
             write(connfd, hostname, sizeof(hostname));
@@ -130,24 +159,16 @@ int main(int argc, char **argv) {
                 perror("Failed to read client");
                 exit(1);
             } else {
-                // for (int i = index; i < BACKLOG - 1; i++) {
-                //     new_fd[i] = new_fd[i + 1];
-                // }
-                // new_fd[BACKLOG]
                 printf("Client disconnected from %s\n", conn_ip);
+                exit(0);
             }
-        } else { // parent
-            // char buf[1256];
-            // fgets(buf, sizeof(buf), stdin);
-            // strtok(buf, "\n");
-            // if (!strcmp(buf, "quit")) {
-            //     for (int j = 0; j < i; j++) {
-            //         // write(new_fd[j], );
-            //     }
-            //     run = 0;
-            // }
+        } else {
+            connfd = ret;
         }
     }
+    /* Server Shutdown */
+    printf("Server shutting down...\n");
+    write(connfd, SIG_QUIT, sizeof(SIG_QUIT));
     close(sockfd);
     close(connfd);
     return 0;
