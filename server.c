@@ -2,15 +2,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <limits.h>
+#include <signal.h>
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <netinet/in.h>
-#include <limits.h>
-#include <signal.h>
 #include <arpa/inet.h>
-#include <signal.h>
 
 #define BACKLOG 10
 
@@ -59,48 +58,45 @@ int read_client(int connfd) {
     if (pipe(fd)) {
         return 1;
     }
-    if (!strcmp(args[0], "cd")) { // TODO
+    if (!strcmp(args[0], "cd")) {
         if (args[2] != NULL) {
-            // char error[] = "Too many arguments\n";
-            // printf("%s\n", error);
-            // write(new_fd, error, sizeof(error));
+            strcpy(buf, "Too many arguments\n");
+            write(connfd, buf, sizeof(buf));
         } else if (args[1] != NULL && chdir(args[1]) < 0) {
-            // char error[strlen(strerror(errno)) + 1];
-            // snprintf(error, sizeof(error), "%s\n", strerror(errno));
-            // snprintf(error, strlen(strerror(errno)) + 1, "%s\n", strerror(errno));
-            // char *error = strcpy(error, strerror(errno));
-            // error = strcat(error, "\n");
-            // write(new_fd, error, sizeof(error));
+            strcpy(buf, strerror(errno));
+            strcat(buf, "\n");
+            write(connfd, buf, sizeof(buf));
         }
         if (write(connfd, SIG_END, sizeof(SIG_END)) < 0) {
             return 1;
         }
-        return 0;
+        return read_client(connfd);
     }
     switch (fork()) { // command execution
-        case -1 : return 1; // error
-        case  0 : // child
-            close(connfd);
-            close(fd[0]);
-            dup2(fd[1], 1); // pipe stdout
-            dup2(fd[1], 2); // pipe stderr
-            close(fd[1]);
-            execvp(args[0], args);
-            perror("Failed execute command");
-            exit(1);
-        default : // parent
-            wait(NULL);
-            close(fd[1]);
-            while ((ret = read(fd[0], buf, sizeof(buf))) != 0) {
-                if (ret < 0 || write(connfd, buf, sizeof(buf)) < 0) {
-                    return 1;
-                }
-                memset(&buf, 0, sizeof(buf));
-            }
-            if (write(connfd, SIG_END, sizeof(SIG_END)) < 0) {
+    case -1: // error
+        return 1;
+    case 0: // child
+        close(connfd);
+        close(fd[0]);
+        dup2(fd[1], 1); // pipe stdout
+        dup2(fd[1], 2); // pipe stderr
+        close(fd[1]);
+        execvp(args[0], args);
+        perror("Failed execute command");
+        exit(1);
+    default: // parent
+        wait(NULL);
+        close(fd[1]);
+        while ((ret = read(fd[0], buf, sizeof(buf))) != 0) {
+            if (ret < 0 || write(connfd, buf, sizeof(buf)) < 0) {
                 return 1;
             }
-            close(fd[0]);
+            memset(&buf, 0, sizeof(buf));
+        }
+        if (write(connfd, SIG_END, sizeof(SIG_END)) < 0) {
+            return 1;
+        }
+        close(fd[0]);
     }
     return read_client(connfd);
 }
@@ -113,7 +109,7 @@ void termination_handler(int signum) {
 }
 
 int main(int argc, char **argv) {
-    if (argc < 2) {
+    if (argc < 2 || argc > 3) {
         fprintf(stderr, "Error: Invalid argument length\n"
                         "Usage: %s port hostname\n", argv[0]);
         exit(1);

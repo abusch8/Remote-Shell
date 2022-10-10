@@ -2,27 +2,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <limits.h>
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
-#include <limits.h>
 
 #define SIG_END  "\\1" // End of read signal
 #define SIG_TERM "\\2" // Server termination signal
 
 extern int errno;
-
-// TODO
-// int start_client() {
-
-// }
-
-// int write_server() {
-
-// }
 
 int main(int argc, char **argv) {
     if (argc != 3) {
@@ -56,7 +47,7 @@ int main(int argc, char **argv) {
         fflush(stdout);
         fgets(buf, sizeof(buf), stdin);
         strtok(buf, "\n");
-        if (strcmp(buf, "quit") == 0) {
+        if (!strcmp(buf, "quit")) {
             run = 0;
             break;
         }
