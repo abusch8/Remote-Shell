@@ -18,6 +18,8 @@
 
 extern int errno;
 
+char *home;
+
 int start_server(int *sockfd, int port, struct sockaddr_in server) {
     printf("Starting server...\n");
     if ((*sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -36,8 +38,8 @@ int start_server(int *sockfd, int port, struct sockaddr_in server) {
 }
 
 int read_client(int connfd) {
-    char buf[1256], *token, *rest = buf, *args[10];
-    int ret, i = 0, fd[2];
+    char buf[1256], *token, *rest = buf, *args[10]; // 4k
+    int ret, i = 0, p[2];
     if ((ret = read(connfd, buf, sizeof(buf))) < 0) {
         return 1;
     } else if (!ret) {
@@ -55,14 +57,25 @@ int read_client(int connfd) {
     }
     args[i] = NULL;
     memset(&buf, 0, sizeof(buf));
-    if (pipe(fd)) {
+    if (pipe(p)) {
         return 1;
     }
     if (!strcmp(args[0], "cd")) {
-        if (args[2] != NULL) {
+        if (args[1] == NULL || !strcmp(args[1], "~")) {
+            chdir(home);
+        } else if (args[2] != NULL) {
             strcpy(buf, "Too many arguments\n");
             write(connfd, buf, sizeof(buf));
-        } else if (args[1] != NULL && chdir(args[1]) < 0) {
+        } else if (args[1][0] == '~') {
+            strcpy(buf, home);
+            strcat(buf, strtok(args[1], "~"));
+            if (chdir(buf) < 0) {
+                memset(&buf, 0, sizeof(buf));
+                strcpy(buf, strerror(errno));
+                strcat(buf, "\n");
+                write(connfd, buf, sizeof(buf));
+            }
+        } else if (chdir(args[1]) < 0) {
             strcpy(buf, strerror(errno));
             strcat(buf, "\n");
             write(connfd, buf, sizeof(buf));
@@ -77,17 +90,17 @@ int read_client(int connfd) {
         return 1;
     case 0: // child
         close(connfd);
-        close(fd[0]);
-        dup2(fd[1], 1); // pipe stdout
-        dup2(fd[1], 2); // pipe stderr
-        close(fd[1]);
+        close(p[0]);
+        dup2(p[1], 1); // pipe stdout
+        dup2(p[1], 2); // pipe stderr
+        close(p[1]);
         execvp(args[0], args);
         perror("Failed execute command");
         exit(1);
     default: // parent
         wait(NULL);
-        close(fd[1]);
-        while ((ret = read(fd[0], buf, sizeof(buf))) != 0) {
+        close(p[1]);
+        while ((ret = read(p[0], buf, sizeof(buf))) != 0) {
             if (ret < 0 || write(connfd, buf, sizeof(buf)) < 0) {
                 return 1;
             }
@@ -96,7 +109,7 @@ int read_client(int connfd) {
         if (write(connfd, SIG_END, sizeof(SIG_END)) < 0) {
             return 1;
         }
-        close(fd[0]);
+        close(p[0]);
     }
     return read_client(connfd);
 }
@@ -114,7 +127,7 @@ int main(int argc, char **argv) {
                         "Usage: %s port hostname\n", argv[0]);
         exit(1);
     }
-    char hostname[HOST_NAME_MAX];
+    char hostname[HOST_NAME_MAX], buf[1256];
     int sockfd, *connfd = (int *)malloc(sizeof(int)), curr = 0, port = atoi(argv[1]);
     struct sockaddr_in server, client;
     struct sigaction new_action, old_action;
@@ -135,6 +148,13 @@ int main(int argc, char **argv) {
     } else {
         gethostname(hostname, sizeof(hostname));
     }
+    FILE *fp = popen("echo $HOME", "r");
+    fgets(buf, sizeof(buf), fp);
+    pclose(fp);
+    strtok(buf, "\n");
+    home = (char *)malloc(sizeof(char) * (strlen(buf) + 1));
+    strcpy(home, buf);
+    chdir(home);
     while (run) {
         char conn_ip[INET_ADDRSTRLEN];
         int ret;
