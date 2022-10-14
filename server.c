@@ -38,7 +38,7 @@ int start_server(int *sockfd, int port, struct sockaddr_in server) {
 }
 
 int read_client(int connfd) {
-    char buf[1256], *token, *rest = buf, *args[10]; // 4k
+    char buf[4096], *token, *rest = buf, *args[10];
     int ret, i = 0, p[2];
     if ((ret = read(connfd, buf, sizeof(buf))) < 0) {
         return 1;
@@ -127,7 +127,7 @@ int main(int argc, char **argv) {
                         "Usage: %s port hostname\n", argv[0]);
         exit(1);
     }
-    char hostname[HOST_NAME_MAX], buf[1256];
+    char hostname[HOST_NAME_MAX], buf[4096];
     int sockfd, *connfd = (int *)malloc(sizeof(int)), curr = 0, port = atoi(argv[1]);
     struct sockaddr_in server, client;
     struct sigaction new_action, old_action;
@@ -148,7 +148,7 @@ int main(int argc, char **argv) {
     } else {
         gethostname(hostname, sizeof(hostname));
     }
-    FILE *fp = popen("echo $HOME", "r");
+    FILE *fp = popen("echo ~", "r");
     fgets(buf, sizeof(buf), fp);
     pclose(fp);
     strtok(buf, "\n");
