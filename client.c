@@ -7,9 +7,7 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-// #include <netinet/in.h>
 #include <arpa/inet.h>
-// #include <netdb.h>
 
 #define SIG_END  "\\1" // End of read signal
 #define SIG_TERM "\\2" // Server termination signal
